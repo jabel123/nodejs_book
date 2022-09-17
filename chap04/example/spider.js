@@ -1,37 +1,75 @@
-import fs from 'fs'
+import fs, { link } from 'fs'
 import path from 'path'
 import superagent from 'superagent'
 import mkdirp from 'mkdirp'
-import { urlToFilename } from './utils.js'
+import { urlToFilename, getPageLinks } from './utils.js'
+import { request } from 'http'
 
-export function spider(url, cb) {
+export function spider(url, nesting, cb) {
   const filename = urlToFilename(url);
-  fs.access(filename, err => {
-    
-    if (err && err.code === 'ENOENT') {
-      console.log(`Downloading ${url} into ${filename}`);
-      superagent.get(url).end((err, res) => {
-        console.log('hi')
+  fs.readFile(filename, 'utf-8', (err, fileContent) => {
+    if (err) {
+      if (err.code !== 'ENOENT') {
+        return cb(err);
+      }
+
+      return download(url, filename, (err, requestContent) => {
         if (err) {
-          console.log('hi2')
-          cb(err)
-        } else {
-          console.log('hi3')
-          console.log(filename);
-          console.log(path.dirname(filename).split('/')[1])
-          fs.mkdirSync(path.dirname(filename), { recursive: true });
-          fs.writeFile(filename, res.text, err => {
-            if (err) {
-              console.log('hi5')
-              cb(err)
-            } else {
-              cb(null, filename, true)
-            }
-          })
+          return cb(err) 
         }
+
+        spiderLinks(url, requestContent, nesting, cb)
       })
+    }
+
+    spiderLinks(url, fileContent, nesting, cb)
+  })
+}
+
+function spiderLinks(currentUrl, body, nesting, cb) {
+  if (nesting === 0) {
+    return process.nextTick(cb)
+  }
+
+  const links = getPageLinks(currentUrl, body)
+  if (links.length === 0) {
+    return process.nextTick(cb);
+  }
+
+  function iterate(index) {
+    if (index === links.length) {
+      return cb()
+    }
+
+    spider(links[index], nesting - 1, function (err) {
+      if (err) {
+        return cb(err)
+      }
+      iterate(index + 1)
+    })
+  }
+
+  iterate(0)
+}
+
+function download(url, filename, cb) {
+  console.log(`Downloading ${url} into ${filename}`)
+  superagent.get(url).end((err, res) => {
+    if (err) {
+      cb(err)
     } else {
-      cb(null, filename, false)
+      saveFile(filename, res, cb)
+    }
+  })
+}
+
+function saveFile(filename, res, cb) {
+  fs.mkdirSync(path.dirname(filename), { recursive: true })
+  fs.writeFile(filename, res.text, err => {
+    if (err) {
+      cb(err)
+    } else {
+      cb(null, filename, true)
     }
   })
 }
