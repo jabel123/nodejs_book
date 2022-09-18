@@ -36,20 +36,20 @@ function spiderLinks(currentUrl, body, nesting, cb) {
     return process.nextTick(cb);
   }
 
-  function iterate(index) {
-    if (index === links.length) {
+  let completed = 0;
+  let hasErrors = false
+
+  function done(err) {
+    if (err) {
+      hasErrors = true
+      return cb(err)
+    }
+    if (++completed === links.length && !hasErrors) {
       return cb()
     }
-
-    spider(links[index], nesting - 1, function (err) {
-      if (err) {
-        return cb(err)
-      }
-      iterate(index + 1)
-    })
   }
 
-  iterate(0)
+  links.forEach(link => spider(link, nesting - 1, done));
 }
 
 function download(url, filename, cb) {
