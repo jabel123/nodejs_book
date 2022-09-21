@@ -3,17 +3,11 @@ import { dirname } from 'path'
 import superagent from 'superagent'
 import { urlToFilename, getPageLinks } from '../../chap04/example/utils.js'
 import { promisify } from 'util'
+import { TaskQueue } from './task-queue.js'
 
-export function spider(url, nesting) {
-  const filename = urlToFilename(url);
-  return fsPromises.readFile(filename, 'utf-8')
-            .catch((err) => {
-              if (err.code !== 'ENOENT') {
-                throw err
-              }
-              return download(url, filename)
-            })  
-            .then(content => spiderLinks(url, content, nesting))
+export function spider(url, nesting, concurrency) {
+  const queue = new TaskQueue(concurrency)
+  return spiderTask(url, nesting, queue)
 }
 
 function spiderLinks(currentUrl, body, nesting) {
@@ -23,11 +17,10 @@ function spiderLinks(currentUrl, body, nesting) {
   }
 
   const links = getPageLinks(currentUrl, body)
-  for (const link of links) {
-    promise = promise.then(() => spider(link, nesting - 1))
-  }
+  const promises = links.map(link => spider(link, nesting - 1))
+  console.log(promises)
 
-  return promise
+  return Promise.all(promises)
 }
 
 function download(url, filename) {
@@ -47,23 +40,32 @@ function download(url, filename) {
         console.log(`Downloaded and saved: ${url}`)
         return content;
       })
-
-  // superagent.get(url).end((err, res) => {
-  //   if (err) {
-  //     cb(err)
-  //   } else {
-  //     saveFile(filename, res, cb)
-  //   }
-  // })
 }
 
-function saveFile(filename, res, cb) {
-  fs.mkdirSync(path.dirname(filename), { recursive: true })
-  fs.writeFile(filename, res.text, err => {
-    if (err) {
-      cb(err)
-    } else {
-      cb(null, filename, true)
-    }
-  })
+const spidering = new Set()
+function spiderTask(url, nesting, queue) {
+  if (spidering.has(url)) {
+    console.log('end', spidering)
+    return Promise.resolve()
+  }
+  spidering.add(url)
+
+  const filename = urlToFilename(url)
+
+  return queue.runTask(() => {
+    return fsPromises
+            .readFile(filename, 'utf-8')
+            .catch(err => {
+                console.log('error info', err)
+                if (err.code !== 'ENOENT') {
+                  throw err
+                }
+                // 파일이 없다면 다운로드합니다.
+                return download(url, filename)
+              })
+            })
+            .then(content => {
+              console.log('spider link')
+              spiderLinks(url, content, nesting, queue)
+            })
 }
