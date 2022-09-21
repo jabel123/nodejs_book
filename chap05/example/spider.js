@@ -1,12 +1,12 @@
-import { promises as fsPromises } from 'fs'
+import fs, { mkdir, promises as fsPromises } from 'fs'
 import { dirname } from 'path'
 import superagent from 'superagent'
 import { urlToFilename, getPageLinks } from '../../chap04/example/utils.js'
 import { promisify } from 'util'
 
-export function spider(url, nesting, cb) {
+export function spider(url, nesting) {
   const filename = urlToFilename(url);
-  return fs.readFile(filename, 'utf-8')
+  return fsPromises.readFile(filename, 'utf-8')
             .catch((err) => {
               if (err.code !== 'ENOENT') {
                 throw err
@@ -36,7 +36,11 @@ function download(url, filename) {
   return superagent.get(url)
       .then((res) => {
         content = res.text
-        return mkdirpPromises(dirname(filename))
+        return mkdir(dirname(filename), {recursive: true}, err => {
+          if (err) {
+            throw new Error('error is occured');
+          }
+        })        
       })
       .then(() => fsPromises.writeFile(filename, content))
       .then(() => {
